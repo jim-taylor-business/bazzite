@@ -36,11 +36,44 @@ ARG NVIDIA_BASE="${NVIDIA_BASE:-bazzite}"
 ARG KERNEL_FLAVOR="${KERNEL_FLAVOR:-ogc}"
 ARG KERNEL_VERSION="${KERNEL_VERSION:-7.0.9-ogc3.2.fc${FEDORA_VERSION}.${ARCH}}"
 ARG NVIDIA_FLAVOR="${NVIDIA_FLAVOR:-nvidia-open}"
+# Local directory (populated by the workflow via `oras pull` from our
+# kernel-packages registry) containing our custom-built kernel-core /
+# kernel-modules RPMs. Passed in as a build-arg pointing at the build
+# context path, e.g. "kernel-rpms".
+
+# RUN echo "${KERNEL_RPMS_DIR}"
+# RUN echo ${KERNEL_RPMS_DIR}
+
+ARG KERNEL_RPMS_DIR="${KERNEL_RPMS_DIR:-kernel-rpms}"
+
+# RUN echo "${KERNEL_RPMS_DIR}"
+# RUN echo ${KERNEL_RPMS_DIR}
 
 FROM ghcr.io/ublue-os/akmods:${KERNEL_FLAVOR}-${FEDORA_VERSION}-${KERNEL_VERSION} AS akmods
 FROM ghcr.io/ublue-os/akmods-extra:${KERNEL_FLAVOR}-${FEDORA_VERSION}-${KERNEL_VERSION} AS akmods-extra
 FROM ghcr.io/ublue-os/akmods-${NVIDIA_FLAVOR}:${KERNEL_FLAVOR}-${FEDORA_VERSION}-${KERNEL_VERSION} AS akmods-nvidia
 FROM ghcr.io/ublue-os/brew:latest@sha256:d52b3f578f01623636aff534291b0bd8ff0a0244ef225bf51aecb5fa05a137af AS brew
+
+# Our custom kernel RPMs, pulled from kernel-packages by the workflow into
+# a local directory and brought in here as a `scratch` stage so they can be
+# bind-mounted the same way the ublue-os akmods RPMs are below.
+#
+# NOTE: akmods / akmods-extra / akmods-nvidia above still come from
+# ublue-os and are compiled against THEIR kernel build (KERNEL_VERSION).
+# Their out-of-tree modules (including nvidia) are only guaranteed to load
+# against a kernel with a matching vermagic/ABI. If our custom kernel's
+# version/release differs from ublue-os's, those modules will very likely
+# fail to load at runtime even though they install fine. Only /kernel-rpms
+# below is swapped for our own build; everything else is still ublue-os's.
+# ARG KERNEL_RPMS_DIR
+
+# RUN echo "${KERNEL_RPMS_DIR}"
+# RUN echo ${KERNEL_RPMS_DIR}
+
+FROM scratch AS custom-kernel
+COPY kernel-rpms/ /kernel-rpms/
+
+# COPY /home/runner/work/bazzite/bazzite/kernel-rpms/ /kernel-rpms/
 
 FROM scratch AS ctx
 COPY build_files /
@@ -63,6 +96,13 @@ ARG VERSION_PRETTY="${VERSION_PRETTY}"
 COPY system_files/desktop/shared/ system_files/desktop/${BASE_IMAGE_NAME}/ /
 RUN find /usr/share/ublue-os/docs -type f -exec setfattr -n user.component -v "ublue-docs" {} +
 
+RUN echo "${KERNEL_REPO}"
+RUN echo ${KERNEL_REPO}
+
+RUN echo "${KERNEL_RPMS_DIR}"
+RUN echo ${KERNEL_RPMS_DIR}
+
+
 # Install needed firmware blobs
 RUN --mount=type=bind,src=firmware,dst=/ctx/firmware \
     --mount=type=cache,dst=/var/log \
@@ -80,10 +120,14 @@ RUN find /tmp/brew_files -type f -printf '/%P\0' > /tmp/brew_list.txt && \
     xargs -0 -a /tmp/brew_list.txt setfattr -h -n user.component -v "homebrew" && \
     rm -rf /tmp/brew_files /tmp/brew_list.txt
 
+# RUN pwd
+# RUN ls -laR /tmp
+# RUN ls -laR /kernel-rpms
+
 # Install kernel
 RUN --mount=type=cache,dst=/var/cache \
     --mount=type=cache,dst=/var/log \
-    --mount=type=bind,from=akmods,src=/kernel-rpms,dst=/tmp/kernel-rpms \
+    --mount=type=bind,from=custom-kernel,src=/kernel-rpms,dst=/tmp/kernel-rpms \
     --mount=type=bind,from=akmods,src=/rpms/common,dst=/tmp/rpms/common \
     --mount=type=bind,from=akmods,src=/rpms/kmods,dst=/tmp/rpms/kmods \
     --mount=type=bind,from=akmods-extra,src=/rpms/extra,dst=/tmp/rpms/extra \

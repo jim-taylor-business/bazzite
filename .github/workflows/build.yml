@@ -42,6 +42,10 @@ concurrency:
 
 env:
   REPO_OWNER: ${{ github.repository_owner }}
+  # Registry that publishes our custom kernel-packages RPMs (as an ORAS
+  # artifact, not a container image) via `oras push`. Adjust the owner if
+  # your kernel-packages fork lives under a different account/org.
+  KERNEL_REPO: ghcr.io/${{ github.repository_owner }}/kernel-packages-fedora
 
 jobs:
   # Resolve the version tag once for the whole run.
@@ -111,28 +115,35 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - bazzite
-          - bazzite-gnome
-          - bazzite-deck
-          - bazzite-deck-gnome
-          - bazzite-deck-nvidia
-          - bazzite-deck-nvidia-gnome
-          - bazzite-nvidia
+          # - bazzite
+          # - bazzite-gnome
+          # - bazzite-deck
+          # - bazzite-deck-gnome
+          # - bazzite-deck-nvidia
+          # - bazzite-deck-nvidia-gnome
+          # - bazzite-nvidia
           - bazzite-gnome-nvidia
-          - bazzite-nvidia-open
-          - bazzite-gnome-nvidia-open
+          # - bazzite-nvidia-open
+          # - bazzite-gnome-nvidia-open
         include:
+          # custom_kernel_tag must match exactly what your kernel-packages
+          # workflow pushed, i.e. "${VERSION}-${target.id}" from its
+          # `oras push` step (target.id is fc43/fc44/el10 from that repo's
+          # matrix). Update this every time you cut a new kernel build.
           - fedora_version: 44
             kernel_flavor: ogc
             kernel_version: 7.2.3-ogc3.1.fc44
+            custom_kernel_tag: 7.2.3-ogc3.1.fc44
             base_image_flavor: main
             arch: x86_64
-          - image: bazzite-nvidia
-            kernel_flavor: ogc-lts
-            kernel_version: 6.18.49-ogc1.1.fc44
+          # - image: bazzite-nvidia
+          #   kernel_flavor: ogc-lts
+          #   kernel_version: 6.18.49-ogc1.1.fc44
+          #   custom_kernel_tag: 7.2.3-ogc2.1-fc44
           - image: bazzite-gnome-nvidia
             kernel_flavor: ogc-lts
             kernel_version: 6.18.49-ogc1.1.fc44
+            # custom_kernel_tag: 7.2.3-ogc2.1-fc44
     steps:
       - name: Show disk space
         run: sudo df -h
@@ -235,6 +246,9 @@ jobs:
       - name: Check just syntax
         uses: ublue-os/just-action@v3
 
+      - name: Setup oras
+        uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
+
       - name: Pull Images and find versions
         id: labels
         env:
@@ -278,10 +292,28 @@ jobs:
           #
           # Kernel & akmods
           #
-          AKMODS_TAG="${{ steps.base.outputs.akmods_tag }}"
-          podman pull ghcr.io/ublue-os/akmods:${AKMODS_TAG}
-          # podman pull ghcr.io/ublue-os/akmods-extra:${AKMODS_TAG}
+          # Pull our own custom kernel RPMs instead of ublue-os's stock ones.
+          # kernel-packages publishes these via `oras push repo:tag *.rpm`,
+          # which is a raw-file OCI artifact, NOT a bootable container image
+          # -- so it can't be `podman pull`ed and used as a `FROM`/
+          # `COPY --from=` stage the way ghcr.io/ublue-os/akmods can. We pull
+          # the RPMs down into a local directory instead and hand that to
+          # buildah as build context.
+          rm -rf kernel-rpms && mkdir -p kernel-rpms
+          oras pull "${KERNEL_REPO}:${{ matrix.custom_kernel_tag }}" -o kernel-rpms
+          pwd
+          ls -laR kernel-rpms
 
+          # NOTE: akmods-extra / nvidia akmods below are still ublue-os's
+          # own build, compiled against *their* kernel ABI. If our custom
+          # kernel's version/release string differs at all from the
+          # kernel_version ublue-os built these akmods against, the
+          # out-of-tree modules inside them (including nvidia) will not
+          # match the running kernel's ABI and will fail to load. Until we
+          # also rebuild akmods against our custom kernel, only rely on this
+          # for images where install_nvidia is false, or expect nvidia to be
+          # broken.
+          AKMODS_TAG="${{ steps.base.outputs.akmods_tag }}"
           if [ "${{ steps.base.outputs.install_nvidia }}" == "true" ]; then
             NVIDIA_FLAVOR="${{ steps.base.outputs.nvidia_flavor }}"
             podman pull "ghcr.io/ublue-os/akmods-${NVIDIA_FLAVOR}:${AKMODS_TAG}"
@@ -303,6 +335,7 @@ jobs:
           IMAGE_BRANCH=${{ github.ref_name }}
           KERNEL_FLAVOR=${{ matrix.kernel_flavor }}
           KERNEL_VERSION=${{ matrix.kernel_version }}
+          KERNEL_RPMS_DIR=kernel-rpms
           NVIDIA_FLAVOR=${{ steps.base.outputs.nvidia_flavor }}
           NVIDIA_BASE=${{ steps.base.outputs.nvidia_base }}
           SHA_HEAD_SHORT=${{ steps.base.outputs.sha_head_short }}
