@@ -111,28 +111,13 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - bazzite
-          - bazzite-gnome
-          - bazzite-deck
-          - bazzite-deck-gnome
-          - bazzite-deck-nvidia
-          - bazzite-deck-nvidia-gnome
-          - bazzite-nvidia
           - bazzite-gnome-nvidia
-          - bazzite-nvidia-open
-          - bazzite-gnome-nvidia-open
         include:
           - fedora_version: 44
             kernel_flavor: ogc
             kernel_version: 7.2.3-ogc3.1.fc44
             base_image_flavor: main
             arch: x86_64
-          - image: bazzite-nvidia
-            kernel_flavor: ogc-lts
-            kernel_version: 6.18.49-ogc1.1.fc44
-          - image: bazzite-gnome-nvidia
-            kernel_flavor: ogc-lts
-            kernel_version: 6.18.49-ogc1.1.fc44
     steps:
       - name: Show disk space
         run: sudo df -h
@@ -186,7 +171,7 @@ jobs:
             echo "install_nvidia=false" >> "$GITHUB_OUTPUT"
           fi
           # Nvidia flavor
-          if [[ "$IMAGE" == *"nvidia-open" || "$IMAGE" == *"-deck-nvidia"* ]]; then
+          if [[ "$IMAGE" == *"nvidia-open" || "$IMAGE" == *"-deck-nvidia"* || "$IMAGE" == "bazzite-gnome-nvidia" ]]; then
             echo "nvidia_flavor=nvidia-open" >> "$GITHUB_OUTPUT"
           else
             echo "nvidia_flavor=nvidia-lts" >> "$GITHUB_OUTPUT"
@@ -234,6 +219,22 @@ jobs:
 
       - name: Check just syntax
         uses: ublue-os/just-action@v3
+
+      - name: Install ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Fetch kernel packages
+        env:
+          KERNEL_VERSION: ${{ matrix.kernel_version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p kernel-rpms
+          oras pull "ghcr.io/jim-taylor-business/kernel-packages-fedora:${KERNEL_VERSION}" -o kernel-rpms
+          ls -1 kernel-rpms
+          for pkg in kernel kernel-core kernel-modules kernel-devel; do
+            test -f "kernel-rpms/${pkg}-${KERNEL_VERSION}.${ARCH}.rpm"
+          done
 
       - name: Pull Images and find versions
         id: labels
@@ -592,10 +593,6 @@ jobs:
             ${{ steps.base.outputs.output_image }}@${{ steps.push.outputs.digest }}
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-
-      - name: Install ORAS
-        if: github.event_name != 'pull_request'
-        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
 
       - name: Login to GitHub Container Registry with ORAS
         if: github.event_name != 'pull_request'
