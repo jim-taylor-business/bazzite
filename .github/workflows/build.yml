@@ -111,7 +111,7 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - bazzite-gnome-nvidia
+          - bazzite-gnome-nvidia-open
         include:
           - fedora_version: 44
             kernel_flavor: ogc
@@ -171,7 +171,7 @@ jobs:
             echo "install_nvidia=false" >> "$GITHUB_OUTPUT"
           fi
           # Nvidia flavor
-          if [[ "$IMAGE" == *"nvidia-open" || "$IMAGE" == *"-deck-nvidia"* || "$IMAGE" == "bazzite-gnome-nvidia" ]]; then
+          if [[ "$IMAGE" == *"nvidia-open" || "$IMAGE" == *"-deck-nvidia"* ]]; then
             echo "nvidia_flavor=nvidia-open" >> "$GITHUB_OUTPUT"
           else
             echo "nvidia_flavor=nvidia-lts" >> "$GITHUB_OUTPUT"
@@ -221,7 +221,7 @@ jobs:
         uses: ublue-os/just-action@v3
 
       - name: Install ORAS
-        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
 
       - name: Fetch kernel packages
         env:
