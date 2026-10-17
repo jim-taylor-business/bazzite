@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Build Live ISOs
 
-on:
-  workflow_dispatch:
-  workflow_call:
-  push:
-    branches: [testing]
-    paths:
-      - installer/**
+# on:
+#   workflow_dispatch:
+#   workflow_call:
+#   push:
+#     branches: [testing]
+#     paths:
+#       - installer/**
 
 env:
   REPO_OWNER: ${{ github.repository_owner }}
